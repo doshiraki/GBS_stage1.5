@@ -29,7 +29,7 @@
       version: <?!= JSON.stringify(version) ?>,
       dependencies: <?!= JSON.stringify(dependencyList) ?>,
       initialData: <?!= JSON.stringify(initialData) ?>,
-      cachePrefix: 'GBS_CACHE_v25_'
+      cachePrefix: 'GBS_CACHE_'
     };
 
     // 🟢 API Interface
@@ -59,14 +59,15 @@
        */
       cleanOldCache() {
         try {
-          const currentPrefix = this.config.cachePrefix;
-          for (let i = 0; i < localStorage.length; i++) {
+          const pattern = new RegExp(`${this.config.cachePrefix}.*_${this.config.version}_(gz|raw)`);
+          for (let i = localStorage.length - 1; i >= 0 ; i--) {
             const key = localStorage.key(i);
-            if (key && key.startsWith('GBS_CACHE_') && !key.startsWith(currentPrefix)) {
+            console.log(key, this.config.cachePrefix, pattern);
+            if (key && key.startsWith(this.config.cachePrefix) && !pattern.test(key)) {
               localStorage.removeItem(key);
             }
           }
-        } catch (e) {}
+        } catch (e) {console.log(e);}
       }
 
       async run(funcName, params = {}) {
