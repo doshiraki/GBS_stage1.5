@@ -44,7 +44,6 @@ class AppCore_ {
     let errs = [];
     // 登録されたパスを順番に探索
     for (const accessor of this.searchPath) {
-      console.log(accessor);
       try {
         // テンプレート生成を試みる
         const tmpl = accessor.createTemplate(fileName);
@@ -55,8 +54,6 @@ class AppCore_ {
         if (compress) {
           content =  AppCore_.getCompressedSource(content);
         }
-
-        console.log(content);
 
         return content; // Raw String
 
@@ -94,11 +91,8 @@ class AppCore_ {
       try {
         // 💡 ここを変更: applyを使って引数配列を展開して渡す
         // p.args が Proxy から送られてきた引数配列 [arg1, arg2, ...]
-        console.log("proxy");
-        console.log(p);
         const args = Array.isArray(p.args) ? p.args : [];
         const result = gt[p.mode].apply(gt, args);
-        console.log(result);
         
         return result; 
       } catch (err) {
