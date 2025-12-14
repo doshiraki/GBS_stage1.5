@@ -24,20 +24,13 @@
 
         // Pattern B: 通常の関数呼び出し (実行トリガー)
         // 🚀 ここで Promise 化を行う！
-        return (...args) => {
-          return (async ()=> await new Promise((resolve, reject) =>
-              target
-                .withSuccessHandler(resolve)  // 成功したら await 側に値を返す
-                .withFailureHandler(reject)   // 失敗したら catch させる
-                .run("func", [prop, ...args]))             // サーバー側の Dispatcher 'run' を呼ぶ
-          )();
-        };
+        return (...args) => target.run("func", [prop, ...args]);             // サーバー側の Dispatcher 'run' を呼ぶ
       }
     });
   };
 
   // 🚀 Ignition
-  //google.script.run = createHijackedRunner(google.script.run);
+  google.script.run = createHijackedRunner(google.script.run);
 })();
 
 const ClientCore = {
