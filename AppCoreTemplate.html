@@ -144,6 +144,12 @@
           document.head.appendChild(newScript);
         });
       }
+
+      getSource(code) {
+          const div = document.createElement('div');
+          div.innerHTML = code;
+          return div.querySelector('script').innerHTML;
+      }
     }
 
     // 🚀 Ignition Sequence
@@ -153,7 +159,7 @@
       }
 
       const elStatus = document.getElementById('loader-status');
-      const loader = new Loader(CONFIG, api);
+      window.loader = new Loader(CONFIG, api);
       
       try {
         elStatus.textContent = 'Loading System...';
