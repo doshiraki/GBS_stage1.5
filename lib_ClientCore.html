@@ -31,7 +31,7 @@
             target
               .withSuccessHandler(resolve)  // 成功したら await 側に値を返す
               .withFailureHandler(reject)   // 失敗したら catch させる
-              .run(prop, args);             // サーバー側の Dispatcher 'run' を呼ぶ
+              .run("func", [prop, ...args]);             // サーバー側の Dispatcher 'run' を呼ぶ
           });
         };
       }

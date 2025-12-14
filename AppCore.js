@@ -39,8 +39,10 @@ class AppCore_ {
    * * @param {string} fileName - ファイル名
    * @param {boolean} [compress=true] - 圧縮するかどうか
    * @return {string|null} - Base64文字列, 生テキスト, または null
+   * @param {Object} [data] - テンプレートに注入するデータ
+
    */
-  fetchResource(fileName, compress = true) {
+  fetchResource(fileName, compress = true, data = {}) {
     let errs = [];
     // 登録されたパスを順番に探索
     for (const accessor of this.searchPath) {
@@ -48,8 +50,20 @@ class AppCore_ {
         // テンプレート生成を試みる
         const tmpl = accessor.createTemplate(fileName);
 
-        let content = tmpl.getRawContent();
-        
+        let content;
+        if (data) {
+          // データ注入
+          if (data && typeof data === 'object') {
+            Object.keys(data).forEach(k => tmpl[k] = data[k]);
+          }
+
+          // 評価して文字列化
+          content = tmpl.evaluate().getContent();
+
+        } else {
+          content = tmpl.getRawContent();
+        }
+
         // 圧縮制御
         if (compress) {
           content =  AppCore_.getCompressedSource(content);
@@ -67,17 +81,33 @@ class AppCore_ {
     return null;
   }
 
-  run(e, gt) {
+  static getModeInfo(e) {
     const p = (e && e.parameter) ? e.parameter : {};
+    let ret = {
+      mode: p.mode
+    };
+
+    if (p.mode == "source") {
+      const compress = (p.args.compress !== 'false' && p.args.compress !== false);
+      ret = {...ret, file: p.args.file, compress: compress};
+    } else if (p.mode == "func") {
+      ret = {...ret, cmd: p.args[0], args: p.args.slice(1)};
+    }
+    console.log(ret);
+    return ret;
+
+  }
+
+  run(e, gt) {
+    const p = AppCore_.getModeInfo(e);
 
     // ----------------------------------------------------
     // Mode A: リソース配信 (Loaderからの要求)
     // ----------------------------------------------------
     if (p.mode === 'source') {
-      const compress = (p.args.compress !== 'false' && p.args.compress !== false);
       
       // AppCore経由で取得 (圧縮or生)
-      const content = this.fetchResource(p.args.file, compress);
+      const content = this.fetchResource(p.file, p.compress);
       
       return (e.type === 'RPC') ? content : ContentService.createTextOutput(content || '');
     }
@@ -87,13 +117,12 @@ class AppCore_ {
     // ----------------------------------------------------
     // クライアント(GBS.run)からの関数実行要求
     // Logic.gs にあるグローバル関数を動的に実行する
-    if (p.mode && typeof gt[p.mode] === 'function') {
+    if (p.mode === 'func' && typeof gt[p.cmd] === 'function') {
       try {
         // 💡 ここを変更: applyを使って引数配列を展開して渡す
         // p.args が Proxy から送られてきた引数配列 [arg1, arg2, ...]
-        const args = Array.isArray(p.args) ? p.args : [];
-        const result = gt[p.mode].apply(gt, args);
-        
+        const result = gt[p.cmd].apply(gt, p.args);
+
         return result; 
       } catch (err) {
         console.error(`[MajinOS] RPC Error (${p.mode}):`, err);
