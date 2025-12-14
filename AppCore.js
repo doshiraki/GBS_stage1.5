@@ -37,11 +37,11 @@ class AppCore_ {
    * System -> User の順でリソースを探し、圧縮(または生)で返す。
    * クライアント側(Loader)からの要求に応じて動作する。
    * * @param {string} fileName - ファイル名
-   * @param {Object} [data] - テンプレートに注入するデータ
    * @param {boolean} [compress=true] - 圧縮するかどうか
    * @return {string|null} - Base64文字列, 生テキスト, または null
    */
-  fetchResource(fileName, data = {}, compress = true) {
+  fetchResource(fileName, compress = true) {
+    let errs = [];
     // 登録されたパスを順番に探索
     for (const accessor of this.searchPath) {
       console.log(accessor);
@@ -49,20 +49,7 @@ class AppCore_ {
         // テンプレート生成を試みる
         const tmpl = accessor.createTemplate(fileName);
 
-        let content;        
-        console.log(data);
-        if (data) {
-          // データ注入
-          if (data && typeof data === 'object') {
-            Object.keys(data).forEach(k => tmpl[k] = data[k]);
-          }
-          
-          // 評価して文字列化
-          content = tmpl.evaluate().getContent();
-
-        } else {
-          content = tmpl.getRawContent();
-        }
+        let content = tmpl.getRawContent();
         
         // 圧縮制御
         if (compress) {
@@ -74,17 +61,16 @@ class AppCore_ {
         return content; // Raw String
 
       } catch (e) {
-        // このアクセサには無かった(またはエラー)。次へ。
-        // console.warn(`[AppCore] Skip accessor ${accessor.id} for ${fileName}`);
+        errs.push('[' + accessor.id + ']' + e.message + '\n' + e.stack);
       }
     }
     
     // どこにもなければ null (呼び出し元で404ハンドリング)
-    console.warn(`[AppCore] 404 Not Found: ${fileName}`);
+    console.warn(`${fileName}`+errs.join('\n'));
     return null;
   }
 
-  run(e, injectData, gt) {
+  run(e, gt) {
     const p = (e && e.parameter) ? e.parameter : {};
 
     // ----------------------------------------------------
@@ -94,7 +80,7 @@ class AppCore_ {
       const compress = (p.args.compress !== 'false' && p.args.compress !== false);
       
       // AppCore経由で取得 (圧縮or生)
-      const content = this.fetchResource(p.args.file, injectData, compress);
+      const content = this.fetchResource(p.args.file, compress);
       
       return (e.type === 'RPC') ? content : ContentService.createTextOutput(content || '');
     }
