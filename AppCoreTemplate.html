@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <title><?= appTitle ?></title>
+  <style>
+    /* Loader Style */
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #f8f9fa; }
+    #gbs-loader { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; background: #fff; }
+    .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .error-msg { color: #dc3545; margin-top: 15px; font-weight: bold; white-space: pre-wrap; font-family: monospace; font-size: 12px; text-align: center; max-width: 90%; }
+    #app-root { display: none; width: 100%; height: 100%; overflow: auto; }
+  </style>
+</head>
+<body>
+  <div id="gbs-loader">
+    <div class="spinner"></div>
+    <div id="loader-status" style="font-family:sans-serif; color:#666;">Connecting...</div>
+    <div id="loader-error" class="error-msg"></div>
+  </div>
+  <div id="app-root"></div>
+
+  <script>
+    // 🟢 Configuration
+    const CONFIG = {
+      targetMain: <?!= JSON.stringify(targetMain) ?>,
+      version: <?!= JSON.stringify(version) ?>,
+      dependencies: <?!= JSON.stringify(dependencyList) ?>,
+      initialData: <?!= JSON.stringify(initialData) ?>,
+      cachePrefix: 'GBS_CACHE_v25_'
+    };
+
+    // 🟢 API Interface
+    const api = {
+      run(mode, params) {
+        return new Promise((resolve, reject) => {
+          google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(err => reject(new Error(err.message)))
+            .run(mode, params);
+        });
+      }
+    };
+
+    /**
+     * 🧠 Loader Class
+     */
+    class Loader {
+      constructor(config, api) {
+        this.config = config;
+        this.api = api;
+        this.cleanOldCache();
+      }
+
+      /**
+       * 🧹 Cache Cleaner
+       */
+      cleanOldCache() {
+        try {
+          const currentPrefix = this.config.cachePrefix;
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('GBS_CACHE_') && !key.startsWith(currentPrefix)) {
+              localStorage.removeItem(key);
+            }
+          }
+        } catch (e) {}
+      }
+
+      async run(funcName, params = {}) {
+        return this.api.run(funcName, params);
+      }
+
+      decompress(b64Data) {
+        if (typeof pako === 'undefined') throw new Error('Pako is not loaded');
+        try {
+          const strData = atob(b64Data);
+          const charData = strData.split('').map(x => x.charCodeAt(0));
+          const binData = new Uint8Array(charData);
+          return pako.ungzip(binData, { to: 'string' });
+        } catch (e) {
+          throw new Error(`Decompression Failed: ${e.message}`);
+        }
+      }
+
+      async load(fileName, compress = true, inject = false) {
+        const storageKey = `${this.config.cachePrefix}${fileName}_${this.config.version}_${compress ? 'gz' : 'raw'}`;
+        let content = null;
+
+        try {
+          const cached = localStorage.getItem(storageKey);
+          if (cached) {
+            content = cached;
+          } else {
+            content = await this.api.run('source', { file: fileName, compress: compress });
+            if (!content) throw new Error('Empty Response');
+            try { localStorage.setItem(storageKey, content); } catch(e) {}
+          }
+
+          const finalCode = compress ? this.decompress(content) : content;
+
+          if (inject) this.injectScript(finalCode);
+
+          return finalCode;
+
+        } catch (e) {
+          throw new Error(`[${fileName}] ${e.message}`);
+        }
+      }
+
+      /**
+       * 💉 Inject Script Tag (Modified!)
+       * HTML文字列(script)を受け取り、中身だけを実行する
+       */
+      injectScript(htmlContent) {
+        // 一時的なコンテナを作る
+        const div = document.createElement('div');
+        div.innerHTML = htmlContent;
+
+        // scriptタグを探す
+        const scripts = div.querySelectorAll('script');
+        
+        if (scripts.length === 0) {
+          // scriptタグがない場合（生のJSコードが来た場合への保険）
+          // console.warn('No script tags found, injecting raw text');
+          const s = document.createElement('script');
+          s.text = htmlContent;
+          document.head.appendChild(s);
+          return;
+        }
+
+        // 全てのscriptタグを再生成して注入
+        scripts.forEach(oldScript => {
+          const newScript = document.createElement('script');
+          // 属性コピー (srcなどがあれば)
+          Array.from(oldScript.attributes).forEach(attr => {
+            newScript.setAttribute(attr.name, attr.value);
+          });
+          // 中身のコードをコピー (textContentを使う)
+          newScript.text = oldScript.textContent;
+          document.head.appendChild(newScript);
+        });
+      }
+    }
+
+    // 🚀 Ignition Sequence
+    window.addEventListener('load', async () => {
+      if (window.GBS_LOADED) {
+        return;
+      }
+
+      const elStatus = document.getElementById('loader-status');
+      const loader = new Loader(CONFIG, api);
+      
+      try {
+        elStatus.textContent = 'Loading System...';
+
+        // 1. Load Pako (RAW) -> Inject
+        await loader.load('lib_pako', false, true);
+
+        // 2. Load ClientCore (COMPRESSED) -> Inject
+        await loader.load('lib_ClientCore', true, true);
+
+        // 3. Handover
+        if (typeof ClientCore === 'undefined') throw new Error('ClientCore Signature Missing');
+        
+        await ClientCore.boot(CONFIG, loader, {
+          loader: document.getElementById('gbs-loader'),
+          status: elStatus,
+          error: document.getElementById('loader-error'),
+          root: document.getElementById('app-root')
+        });
+        window.GBS_LOADED = true;
+
+      } catch (e) {
+        console.error(e);
+        document.querySelector('.spinner').style.display = 'none';
+        document.getElementById('loader-error').textContent = e.message;
+      }
+    });
+  </script>
+</body>
+</html>

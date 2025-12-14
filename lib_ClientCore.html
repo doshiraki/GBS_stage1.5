@@ -1,0 +1,87 @@
+<script>
+/**
+ * 🪄 RPC Proxy Override (ClientCore Module)
+ * google.script.run をハイジャックして RPC スタイルに変換するよ。
+ * Loaderが使う .run() はそのまま通すのがポイント！
+ */
+(function() {
+  const createHijackedRunner = (realRunner) => {
+    return new Proxy(realRunner, {
+      get: (target, prop) => {
+        // 🛑 Stop Infinite Loop!
+        if (prop === 'run') {
+          return target[prop];
+        }
+
+        // Pattern A: メソッドチェーン (withSuccessHandler, etc.)
+        // チェーンが続く限り、次のRunnerもProxyで包み直す
+        if (['withSuccessHandler', 'withFailureHandler', 'withUserObject'].includes(prop)) {
+          return (arg) => {
+            const nextRealRunner = target[prop](arg);
+            return createHijackedRunner(nextRealRunner);
+          };
+        }
+
+        // Pattern B: 通常の関数呼び出し (実行トリガー)
+        // 🚀 ここで Promise 化を行う！
+        return (...args) => {
+          return new Promise((resolve, reject) => {
+            // target はハンドラ設定済みのRunnerかもしれないが、
+            // GBSのモダンな書き方(await)を優先して、Promiseのハンドラをセットする
+            target
+              .withSuccessHandler(resolve)  // 成功したら await 側に値を返す
+              .withFailureHandler(reject)   // 失敗したら catch させる
+              .run(prop, args);             // サーバー側の Dispatcher 'run' を呼ぶ
+          });
+        };
+      }
+    });
+  };
+
+  // 🚀 Ignition
+  google.script.run = createHijackedRunner(google.script.run);
+})();
+
+const ClientCore = {
+  injectHtml(content, rootElement) {
+    const range = document.createRange();
+    range.selectNode(document.body);
+    const fragment = range.createContextualFragment(content);
+    rootElement.appendChild(fragment);
+    fragment.querySelectorAll('script').forEach(old => {
+      const neu = document.createElement('script');
+      Array.from(old.attributes).forEach(a => neu.setAttribute(a.name, a.value));
+      neu.text = old.innerHTML;
+      old.parentNode.replaceChild(neu, old);
+    });
+  },
+
+  async boot(config, loader, ui) {
+    try {
+      if (config.dependencies.length > 0) {
+        ui.status.textContent = 'Loading Drivers...';
+        await Promise.all(config.dependencies.map(lib => loader.load(lib, true, true)));
+      }
+
+      ui.status.textContent = 'Loading App...';
+      const mainHtml = await loader.load(config.targetMain, true, false);
+
+      ui.status.textContent = 'Rendering...';
+      this.injectHtml(mainHtml, ui.root);
+
+      ui.loader.style.opacity = '0';
+      setTimeout(() => {
+        ui.loader.style.display = 'none';
+        ui.root.style.display = 'block';
+        window.GBS = loader;
+        window.dispatchEvent(new Event('gbs-loaded'));
+        document.dispatchEvent(new Event('DOMContentLoaded'));
+        window.dispatchEvent(new Event('load'));
+      }, 400);
+
+    } catch (err) {
+      throw err;
+    }
+  }
+};
+</script>
