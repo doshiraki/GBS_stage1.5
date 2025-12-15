@@ -5,7 +5,7 @@
  * Loaderが使う .run() はそのまま通すのがポイント！
  */
 (function() {
-  const createHijackedRunner = (realRunner) => {
+  const createHijackedRunner = (realRunner, isSync = false) => {
     return new Proxy(realRunner, {
       get: (target, prop) => {
         // 🛑 Stop Infinite Loop!
@@ -18,13 +18,27 @@
         if (['withSuccessHandler', 'withFailureHandler', 'withUserObject'].includes(prop)) {
           return (arg) => {
             const nextRealRunner = target[prop](arg);
-            return createHijackedRunner(nextRealRunner);
+            return createHijackedRunner(nextRealRunner, isSync);
           };
+        }
+        else if (prop === 'sync') {
+          return (arg) => createHijackedRunner(target, true);
         }
 
         // Pattern B: 通常の関数呼び出し (実行トリガー)
         // 🚀 ここで Promise 化を行う！
-        return (...args) => target.run("func", [prop, ...args]);             // サーバー側の Dispatcher 'run' を呼ぶ
+        return (...args) => {
+          if (isSync) {
+            return new Promise((resolve, reject)=>
+                  target
+                  .withSuccessHandler(resolve)
+                  .withFailureHandler(reject)
+                  .run("func", [prop, ...args])
+            );  // サーバー側の Dispatcher 'run' を呼ぶ
+          } else {
+            return target.run("func", [prop, ...args]);  // サーバー側の Dispatcher 'run' を呼ぶ
+          }
+        }
       }
     });
   };
